@@ -4,25 +4,22 @@ from selenium.webdriver.common.proxy import Proxy, ProxyType
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import Select
 from time import sleep
-from random import choice
 from grab import Grab, GrabError
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
+
+
 def driver_settings() :
 	options = webdriver.ChromeOptions()
+	ua = UserAgent()
+	agent = ua.random
 
-	agent = [
-		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.30 Safari/537.36',
-		"Mozilla/5.0 (Windows; U; Windows NT 5.1; zh-CN; rv:1.9b4) Gecko/2008030317 Firefox/3.0b4",
-    	"Mozilla/5.0 (Windows; U; MSIE 6.0; Windows NT 5.1; SV1; .NET CLR 2.0.50727; BIDUBrowser 7.6)",
-    	"Mozilla/5.0 (Windows NT 6.3; WOW64; Trident/7.0; rv:11.0) like Gecko",
-    	"Mozilla/5.0 (Windows NT 6.3; WOW64; rv:46.0) Gecko/20100101 Firefox/46.0",
-    	"Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/45.0.2454.99 Safari/537.36",
-    	"Mozilla/5.0 (Windows NT 6.3; Win64; x64; Trident/7.0; Touch; LCJB; rv:11.0) like Gecko",
-	]
-	options.add_argument("user-agent = {}".format(choice(agent)))
+	options.add_argument("User-Agent={}".format(agent))
+
+	referer='https://accounts.pixiv.net/loginlang=zh&source=pc&view_type=page&ref=wwwtop_accounts_index'
+	options.add_argument("Referer = {}".format(referer))
 
 	prefs = {"profile.managed_default_content_settings.images": 2}
 	options.add_experimental_option('prefs' , prefs)
@@ -62,6 +59,62 @@ def get_ip_lst_1() -> list:
 	return ip_lst
 
 
+def get_ip_lst_2() -> list:
+	driver = webdriver.Chrome(options=driver_settings(), executable_path='./chromedriver')
+
+	base_url = 'https://spys.one/en/free-proxy-list/'
+
+	driver.get(base_url)
+	sleep(2)
+
+	try:
+		select_elem = WebDriverWait(driver, 20).until(
+			EC.presence_of_element_located((By.ID, 'xpp'))
+		)
+
+	except Exception as e:
+		print("faild to proxy list")
+		exit(0)
+
+	select_elem = Select(driver.find_element_by_id('xpp'))
+	select_elem.select_by_value('5')
+	sleep(3)
+	select_elem = Select(driver.find_element_by_id('xpp'))
+	select_elem.select_by_value('5')
+	sleep(3)
+
+	table_elem = driver.find_element_by_xpath('/html/body/table[2]/tbody/tr[4]/td/table/tbody').get_attribute('innerHTML')
+	table_elem = "<table>" + table_elem + "</table>"
+
+	df = pd.read_html(table_elem)[0]
+
+	driver.quit()
+
+	df = df.iloc[:, 0]
+	df = df.dropna()
+	df = df[2:-1]
+	ip_lst = df.to_list()
+
+	for i in range(len(ip_lst)):
+		s = ip_lst[i]
+		proxy = s.split(".")
+
+		a = proxy.pop(3)
+		b = proxy.pop(3)
+
+		a = a[:-8]
+		proxy.append(a)
+		proxy = ".".join(proxy)
+
+		b = b.split(":")[2]
+
+		proxy = proxy + ":" + b
+
+		ip_lst[i] = proxy
+
+	return ip_lst
+
+
 def check_ip(ip_lst, song_id) -> list:
 	print(len(ip_lst))
 	g = Grab()
@@ -89,7 +142,7 @@ def add_flow(proxy, song_id):
 	driver.get(target_url)
 	driver.maximize_window()
 
-	if wait_element(driver):
+	if wait_song_element(driver):
 		sleep(3)
 		count_elem =  driver.find_element_by_id('countup-play')
 		before_count = count_elem.text
@@ -115,7 +168,7 @@ def add_flow(proxy, song_id):
 				sleep(8)
 
 				driver.refresh()
-				result = wait_element(driver)
+				result = wait_song_element(driver)
 				sleep(3)
 				count_elem =  driver.find_element_by_id('countup-play')
 
@@ -128,7 +181,7 @@ def add_flow(proxy, song_id):
 		driver.quit()
 
 
-def wait_element(driver):
+def wait_song_element(driver):
 	try:
 		count_elem = WebDriverWait(driver, 20).until(
 			EC.presence_of_element_located((By.ID, 'countup-play'))
